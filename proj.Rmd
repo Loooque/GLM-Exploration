@@ -1,0 +1,491 @@
+---
+title: "Exploration of Generalized Linear Models"
+author:
+  - "Luke Andrade, Soana Ballolli, Dana Gestosani, Himani Patel"
+  - "Submitted to: Jack Mardekian, PhD"
+  - "Department of Statistics, Rutgers University"
+  - "December 6, 2022"
+output: word_document
+header-includes: 
+  - \renewcommand{\and}{\\}
+---
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+# Abstract
+
+Our project investigates three different generalized linear models by applying them to the Palmer penguins dataset. This set is a collection of data about 344 observations studying 8 variables: species, island, bill length, bill depth, flipper length, body mass, sex, and year. Our report applies this data in different ways to the Gaussian, multinomial, and ANCOVA models. Through our study, we found that the Gaussian model used only flipper length as a significant regressor and this model was a better predictor than the original model used. The multinomial model showed that bill length and bill depth are both significant in predicting the species of penguin. The ANCOVA model showed that flipper length has a significant relationship with the body mass of penguins and when controlling for flipper length, species also had a significant impact on the body mass. When testing for a difference of means in body mass between species, it was concluded that they are not equal.
+
+# Introduction
+
+  Our report is an investigation into generalized linear models (GLMs). These models unify linear and nonlinear regression models to develop models for response variables whose distributions are nonnormal and are part of the exponential family (ex: normal, Poisson, binomial, exponential, and gamma distributions). The fundamental idea of GLMs is its two components: the response distribution and the link function. A link function is a function that relates the mean of the response distribution to a linear predictor. This function allows statisticians to map a non-linear relationship to a linear one.
+
+  There are multiple advantages to using GLMs over simple linear regression. The main benefit is that the response variable can have any form of the exponential distribution; it does not need to be transformed to the normal distribution. GLMs are also more flexible and less susceptible to overfitting. There are many different types of GLMs. In our project, we specifically focus on the Gaussian, multinomial, and ANCOVA models.
+
+	To apply these models, we will utilize the Palmer’s penguins dataset. This set was collected from the Palmer Archipelago in Antarctica. It consists of data from 344 penguins across three species (chinstrap, gentoo, adelie) collected from three different islands in the archipelago. Its variables include species, island, bill length (mm), bill depth (mm), flipper length (mm), body mass (g), sex, and year. The application of this data will allow us to learn more about these generalized linear models and notice the differences between the models we have chosen to study. 
+
+
+\newpage
+
+# Programs Used and Packages Required
+
+For this project, the use of R and RStudio were utilized in order to fit the data across all three GLMs. Certain packages were required in order to complete the functions for each model. These included the packages: palmerpenguins, tidyverse, caret, VGAM, nnet, rstatix, car, and multcomp. 
+
+# The Data
+
+```{r}
+head(palmerpenguins::penguins)
+```
+
+```{r}
+summary(palmerpenguins::penguins)
+```
+
+# Gaussian Model
+
+## What is a Gaussian Model
+
+A Gaussian or normal distribution model is used to model functions with a finite number of points. This model is part of the exponential family of distributions. When performing a linear regression using a Gaussian model, the distribution of y given x is a Gaussian distribution with some mean mu and variance sigma². A linear relationship between the data and the parameters of the distribution is expected. The link function for the gaussian model is the identity function.
+
+## Assumption for a Gaussian Model
+
+1.  Cases are independent
+
+2.  The response fits a distribution in the exponential family
+
+3.  Linearity between the transformed expected response in terms of the link function and the explanatory variables
+
+## Setup
+
+```{r}
+library(palmerpenguins)
+library(tidyverse)
+library(caret)
+penguins_df <- na.omit(penguins)
+continuous <- select_if(penguins_df, is.numeric)
+```
+
+## Checking Assumption 1 and 2
+
+Each case from the data set is independent.
+
+```{r}
+hist(penguins_df$body_mass_g, xlab = 'Residuals', main = 'Histogram of Residuals')
+```
+
+This doesn't exactly appear to be normally distributed however we will continue with the modeling.
+
+## Splitting the Data into Test and Training Sets
+
+```{r}
+trainindex <- createDataPartition(penguins_df$species, p = 0.85, list = FALSE)
+training_set <- penguins_df[trainindex,]
+testing_set <- penguins_df[-trainindex,]
+```
+
+```{r}
+model <- glm(body_mass_g ~ bill_length_mm + bill_depth_mm + flipper_length_mm, data = training_set)
+summary(model)
+```
+
+As we can see the only regression coefficient that has a low enough p value to reject the null hypothesis is for the flipper length variable so we will remake the model to only include that variable.
+
+```{r}
+model <- glm(body_mass_g ~ flipper_length_mm, data = training_set)
+summary(model)
+```
+
+## Making Predictions with the Model
+
+```{r}
+predictions <- predict.glm(model, testing_set, type = "link")
+head(predictions)
+```
+
+## Calculating RMSE of the Model
+
+We will calculate the root mean squared error to evaluate the error of the model
+
+```{r}
+RMSE <- sqrt(sum((predictions - testing_set$body_mass_g)^2) / length(predictions))
+RMSE
+```
+
+This number by itself doesn't give us too much information. However, we could compare it to the RMSE of other models to compare the effectiveness of different models.
+
+## Comparing RMSE
+
+We will compare it to the RMSE of the original model we created.
+
+```{r}
+model2 <- glm(body_mass_g ~ bill_length_mm + bill_depth_mm + flipper_length_mm, data = training_set)
+predictions2 <- predict.glm(model2, testing_set)
+RMSE2 <- sqrt(sum((predictions2 - testing_set$body_mass_g)^2) / length(predictions))
+RMSE2
+```
+
+We can see that the previous model had a slightly lower RMSE indicating better predictive power.
+
+\newpage
+
+# Multinomial Logistic Model
+
+## What is a Multinomial Logistic Model
+
+Multinomial Logistic regression is used to predict a single categorical variable using one or more other variables. It extends the approach for situations where the independent variable has more than two categories. This model can be used for classification. If our dependent variable is a categorical variable, we would be able to predict the factor level based on other variables that could be continuous. The link function for this model is the generalized logit.
+
+## Assumptions of Multinomial Logistic Models
+
+1.  Linearity
+
+2.  No Outliers
+
+3.  Independence
+
+4.  No Multicollinearity
+
+## Setup
+
+```{r message=FALSE, warning=FALSE}
+library(caret)
+library(tidyverse)
+require(nnet)
+library(VGAM)
+library(car)
+penguins_df <- palmerpenguins::penguins
+```
+
+```{r}
+penguins_df %>% 
+  group_by(species, island) %>% 
+  summarise(n_records = n())
+```
+
+We can see that the Chinstrap and Gentoo species only appear to inhabit one island while the Adelie species inhabits three different islands islands.
+
+```{r}
+penguins_df <- penguins_df %>%
+  mutate(species_binary = ifelse(species == 'Adelie', 'Adelie', 'Other'))
+
+penguins_df$species_binary <- factor(penguins_df$species_binary, levels = c("Other", "Adelie"))
+```
+
+## Checking Assumption 1
+
+Linearity between the response and predictors.
+
+```{r}
+ggplot(penguins_df, aes(x = bill_length_mm, y = bill_length_mm)) +
+  geom_point() +
+  ggtitle("Scatter Plot for Bill Length vs Bill Depth") +
+  xlab("Bill Length (mm)")
+  ylab("Bill Depth (mm")
+```
+
+We can see that the relationship seems to be linear.
+
+## Checking Assumption 2
+
+No significant outliers
+
+```{r}
+hist(penguins_df$bill_length_mm, xlab = "Bill Length", main = "Histogram of Bill Length")
+hist(penguins_df$bill_depth_mm, xlab = "Bill Depth", main = "Histogram of Bill Depth")
+```
+
+We can see that there are no significant outliers in the data.
+
+## Checking Assumption 3
+
+Independence
+
+```{r}
+fit <- vglm(species~island, multinomial, data = penguins_df)
+anova(fit)
+```
+
+With the low p-value we would reject the null hypothesis and conclude that there is independence.
+
+## Checking Assumption 4
+
+Little or no multicollinearity between the predictors
+
+```{r}
+penguins_df2 <- penguins %>%
+  mutate(species = as.numeric(factor(species)),
+         island = as.numeric(factor(island)),
+         sex = as.numeric(factor(sex)))
+model_of_interest <- lm(species ~ bill_length_mm + bill_depth_mm, data = penguins_df2)
+vif(model_of_interest)
+```
+
+Since each of the variables we are using have a VIF \< 5, multicollinearity is not an issue for our model.
+
+## Training Set, Testing Set, and Setting a Reference Level
+
+The first step is the split the data into a training and testing set if both sets do not already exist for the desired data set.
+
+```{r}
+index <- createDataPartition(penguins_df$species, p = 0.70, list = FALSE)
+train <- penguins_df[index,]
+test <- penguins_df[-index,]
+```
+
+Next we will set the reference level to the species Adelie since it is the only species that inhabits all the islands in this dataset.
+
+```{r}
+train$species <- relevel(train$species, ref = "Adelie")
+test$species <- relevel(test$species, ref = "Adelie")
+```
+
+## Training the Model
+
+```{r}
+multinom_model <- multinom(species ~ bill_length_mm + bill_depth_mm, data = train)
+summary(multinom_model)
+```
+
+## Computing p-values For the Regression Coefficients
+
+```{r}
+(z <- summary(multinom_model)$coefficients / summary(multinom_model)$standard.errors )
+
+(p <- (1 - pnorm(abs(z), 0, 1 )) *2 )
+```
+
+Since all of the p-values are small we will reject the null hypothesis that the regression coefficients are equal to 0. In general, it is good practice to set an alpha level before starting any tests and using a Bonferroni correction when testing.
+
+## Converting the Coefficients to Odds by Taking the Exponentional of the Coefficients
+
+```{r}
+exp(coef(multinom_model))
+```
+
+By taking the exponential of the coefficients, we are able to see the change in the odds ratio with a 1 unit increase.
+
+## Model Prediction and Validation
+
+```{r}
+multinom_preds <- predict(multinom_model, test, type = "class")
+head(multinom_preds)
+```
+## Viewing the First Few Predictions
+
+```{r}
+head(round(fitted(multinom_model), 2))
+```
+
+Multinomial Regression predicts the probability of a particular observation.
+
+## Building a Classification Table
+
+```{r}
+multinom_cm <- table(test$species, multinom_preds)
+multinom_cm
+```
+
+## Calculating Accuracy
+
+```{r}
+round((sum(diag(multinom_cm))/sum(multinom_cm))*100,2)
+```
+
+\newpage
+
+# ANCOVA
+
+## What is ANCOVA
+
+ANCOVA stands for analysis of covariance. Simply put, ANCOVA is a combination of ANOVA and linear regression as it deals with categorical and continuous variables. It is similar to ANOVA, analysis of variance, which tests for differences in mean responses to a categorical factor level. ANCOVA differs from ANOVA because it includes a continuous covariate in the model. The job of the covariate is to remove the unnecessary variation from the response variable. ANCOVA is useful when the covariate has a linear relationship with the dependent variable and does not have relationship with the categorical variable.
+
+## Assumptions of ANCOVA
+
+1.  Linearity between covariate and response at each level of the grouping variable
+
+2.  Homogeneity of regression slopes
+
+3.  Outcome variable is normally distributed
+
+4.  Homoscedasticity for all groups
+
+5.  No significant outliers
+
+## Setup
+
+```{r message=FALSE, warning=FALSE}
+library(palmerpenguins)
+library(tidyverse)
+library(rstatix)
+library(car)
+library(multcomp)
+df <- penguins
+```
+
+palmerspenguins contains the dataset penguins that we will be working with
+
+tidyverse contains packages such as dplyr that is used for data manipulation and ggplot2 which is used for graphing
+
+rstatix contains the function anova_test
+
+car contains the function Anova
+
+multcomp contains the function glht
+
+## Checking assumption 1
+
+Linearity between covariate and response at each level of the grouping variable
+
+This can be done by graphing a scatter plot of the predictor vs the covariate grouped by the categorical variable. In this case, a scatter plot of flipper length vs body mass separated by species.
+
+```{r}
+ggplot(df, aes(x = flipper_length_mm, y = body_mass_g, color = species)) +
+  geom_point() +
+  ggtitle('Scatter Plot of Flipper Length vs Body Mass for Each Species') +
+  xlab('Flipper Length (mm)') +
+  ylab('Body Mass (mm)')
+```
+
+The predictor appears to be linear at every level of species.
+
+## Checking Assumption 2
+
+Homogeneity of regression slopes
+
+This can be checked by seeing if the interaction is significant between the group variable and the predictor.
+
+```{r}
+anova_test(df, body_mass_g ~ flipper_length_mm + species + flipper_length_mm * species)
+```
+
+The interaction between flipper length and species is insignificant therefore not homogeneous. We will proceed for the sake of the exploration of ANCOVA but we will conclude that the results are invalid.
+
+## Checking Assumption 3
+
+Outcome variable is normally distributed
+
+This can be checked by viewing a histogram of the residuals
+
+```{r}
+model <- lm(body_mass_g ~ flipper_length_mm * species, data = df)
+hist(model$residuals, xlab = 'Residuals', main = 'Histogram of Residuals')
+```
+
+The histogram of the residuals appears to be approximately normally distributed.
+
+## Checking Assumption 4
+
+Homoscedasticity for all groups
+
+This can be checked using Bartlett's Test
+
+```{r}
+newdf <- as.data.frame(cbind(df$species, model$residuals))
+names(newdf) <- c('species', 'residuals')
+bartlett.test(residuals ~ species, data = newdf)
+```
+
+With a p-value of 0.3182 we would fail to reject the null hypothesis that the variances are the same across the three species if we were to use 0.01 as the alpha level. We can't use this assumption as it wouldn't result in failing to reject the null hypothesis.
+
+## Checking Assumption 5
+
+No significant outliers
+
+This can be checked by viewing a histogram
+
+```{r}
+hist(df$flipper_length_mm, xlab = 'Body Mass', main = 'Histogram of Body Mass')
+hist(df$flipper_length_mm, xlab = 'Flipper Length', main = 'Histogram of Flipper Length')
+```
+
+There does not appear to be any significant outliers in the data.
+
+With only 3 of our 5 assumptions holding, this exact ANCOVA would not yield valid results.
+
+## Running ANCOVA
+
+We will perform ANCOVA with body mass as the response, flipper length as the covariate, and species as the factor variable.
+
+```{r}
+fit <- aov(body_mass_g ~ flipper_length_mm + species, data = df)
+Anova(fit, type = 'III')
+```
+
+When controlling for our covariate, flipper length, we can see that species has a significant impact on the body mass. We reject the null hypothesis and conclude that the mean body mass is not the same for each species.
+
+The covariate, flipper length has a significant relationship with the body mass of penguins. There was also a significant effect of the species on the body mass after controlling for the effect of the flipper length.
+
+## Post Hoc Test
+
+Next, we must run post hoc tests for comparing multiple means. We will perform this via Tukey contrasts.
+
+```{r}
+posthoc <- glht(fit, linfct = mcp(species = 'Tukey'))
+summary(posthoc)
+```
+
+For the difference in means for each species, we reject the null hypothesis that they are equal and conclude that they are indeed not equal.
+
+```{r}
+confint(posthoc)
+```
+
+When we run a confidence interval for the difference in means, we can see that 0 is not in any of the intervals. In fact, none of the intervals are even close to 0.
+
+# Results
+
+The Gaussian model yielded a model with only flipper length as a significant regressor to predict body mass with a lower RMSE than the original model (predicting body mass using bill length, bill depth, and flipper length).
+
+The multinomial model showed that bill length and bill depth are both significant in predicting the species of penguin with a 94.06 accuracy.
+
+The ANCOVA model showed that flipper length, the covariate, has a significant relationship with the body mass of penguins and when controlling for this covariate, species also had a significant impact on the body mass. When testing for a difference of means in body mass between species, it was concluded that they are not equal and a difference of means indeed exists. 
+
+
+# Discussion
+
+
+
+# Literature Cited
+
+Ancova Part I: Stat 502. PennState: Statistics Online Courses. (n.d.). Retrieved December 6, 2022, from https://online.stat.psu.edu/stat502_fa21/lesson/9
+
+
+Cheng Hua, Y.-J. C. (2021, April 29). Chapter 11 Multinomial Logistic Regression. Companion to BER 642: Advanced regression methods. Retrieved December 6, 2022, from https://bookdown.org/chua/ber642_advanced_regression/multinomial-logistic-regression.html 
+
+
+Datasciencebeginners. (2020, May 27). Multinomial logistic regression with R: R-bloggers. R. Retrieved December 6, 2022, from https://www.r-bloggers.com/2020/05/multinomial-logistic-regression-with-r/ 
+
+
+GLM in R: Learn how to construct generalized linear model in R. EDUCBA. (2021, October 22). Retrieved December 6, 2022, from https://www.educba.com/glm-in-r/ 
+
+
+GLM: Fitting generalized linear models. RDocumentation. (n.d.). Retrieved December 6, 2022, from https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/glm 
+
+
+Gorman KB, Williams TD, Fraser WR (2014). Ecological sexual dimorphism and environmental variability within a community of Antarctic penguins (genus Pygoscelis). PLoS ONE 9(3):e90081. https://doi.org/10.1371/journal.pone.0090081
+
+
+Huang, W.-M. (n.d.). ANCOVA (Analysis of Covariance). Retrieved December 6, 2022, from https://www.lehigh.edu/~wh02/ancova.html#:~:text=ANCOVA&text=Analysis%20of%20covariance%20is%20used,co%2Dvary%20with%20the%20dependent 
+
+
+Introduction to Glms: Stat 504. PennState: Statistics Online Courses. (n.d.). Retrieved December 6, 2022, from https://online.stat.psu.edu/stat504/lesson/6/6.1 
+
+
+Introduction to palmerpenguins. • palmerpenguins. (n.d.). Retrieved December 6, 2022, from https://allisonhorst.github.io/palmerpenguins/articles/intro.html#highlights 
+
+
+Lani, J. (2021, August 11). Analysis of covariance (ANCOVA). Statistics Solutions. Retrieved December 6, 2022, from https://www.statisticssolutions.com/analysis-of-covariance-ancova/ 
+
+
+MULTINOMIAL LOGISTIC REGRESSION | STATA DATA ANALYSIS EXAMPLES. UCLA Statistical Methods and Data Analytics. (n.d.). Retrieved December 6, 2022, from https://stats.oarc.ucla.edu/stata/dae/multinomiallogistic-regression/ 
+
+
+Renard, M. (2021, April 13). Doing and reporting your first ANOVA and Ancova in R. Medium. Retrieved December 6, 2022, from https://towardsdatascience.com/doing-and-reporting-your-first-anova-and-ancova-in-r-1d820940f2ef 
+
